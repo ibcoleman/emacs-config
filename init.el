@@ -2,159 +2,354 @@
 ;; Packages
 ;;;;
 
-;; Define package repositories
+(require 'tls)
+(push "/usr/local/etc/libressl/cert.pem" gnutls-trustfiles)
+
+;;; Initialize package
+
 (require 'package)
-(add-to-list 'package-archives 
-             '("tromey" . "http://tromey.com/elpa/") t)
+
 (add-to-list 'package-archives
-             '("melpa" . "http://melpa.milkbox.net/packages/") t)
-(add-to-list 'package-archives
-             '("melpa-stable" . "http://stable.melpa.org/packages/") t)
-
-(add-to-list 'package-pinned-packages '(cider . "melpa-stable") t)
-(add-to-list 'package-pinned-packages '(magit . "melpa-stable") t)
-
-
-;; Load and activate emacs packages. Do this first so that the
-;; packages are loaded before you start trying to modify them.
-;; This also sets the load path.
+             '("melpa" . "http://melpa.org/packages/"))
+(setq package-archive-priorities '(("melpa" . 10))
+      package-enable-at-startup nil)
 (package-initialize)
 
-;; Download the ELPA archive description if needed.
-;; This informs Emacs about the latest versions of all packages, and
-;; makes them available for download.
-(when (not package-archive-contents)
-  (package-refresh-contents))
+;;; Initialize use-package
 
-;; Define he following variables to remove the compile-log warnings
-;; when defining ido-ubiquitous
-;; (defvar ido-cur-item nil)
-;; (defvar ido-default-item nil)
-;; (defvar ido-cur-list nil)
-;; (defvar predicate nil)
-;; (defvar inherit-input-method nil)
+(setq use-package-always-ensure t)
 
-;; The packages you want installed. You can also install these
-;; manually with M-x package-install
-;; Add in your own as you wish:
-(defvar my-packages
-  '(;; makes handling lisp expressions much, much easier
-    ;; Cheatsheet: http://www.emacswiki.org/emacs/PareditCheatsheet
-    paredit
+(unless (package-installed-p 'use-package)
+  (package-refresh-contents)
+  (package-install 'use-package))
 
-    ;; key bindings and code colorization for Clojure
-    ;; https://github.com/clojure-emacs/clojure-mode
-    clojure-mode
+(eval-when-compile
+  (require 'use-package))
 
-    ;; extra syntax highlighting for clojure
-    clojure-mode-extra-font-locking
+(require 'bind-key)
+(require 'diminish)
 
-    ;; integration with a Clojure REPL
-    ;; https://github.com/clojure-emacs/cider
-    cider
+;;; Utilities
 
-    ;; allow ido usage in as many contexts as possible. see
-    ;; customizations/navigation.el line 23 for a description
-    ;; of ido
-    ido-completing-read+
+(defun init-kill-buffer-current ()
+  "Kill the current buffer."
+  (interactive)
+  (kill-buffer (current-buffer)))
 
-    ;; Enhances M-x to allow easier execution of commands. Provides
-    ;; a filterable list of possible commands in the minibuffer
-    ;; http://www.emacswiki.org/emacs/Smex
-    smex
+;;; Global Configuration
 
-    ;; project navigation
-    projectile
+;; Store customizations in a separate file.
+(setq custom-file (expand-file-name "custom.el" user-emacs-directory))
+(load custom-file)
 
-    ;; colorful parenthesis matching
-    rainbow-delimiters
+;; Store auto-saves and backups in emacs.d/var.
+(let* ((vdir (expand-file-name "var" user-emacs-directory))
+       (adir (expand-file-name "autosaves/" vdir))
+       (ldir (expand-file-name "auto-save-list/" vdir))
+       (bdir (expand-file-name "backups/" vdir)))
+  (make-directory adir t)
+  (make-directory bdir t)
+  (setq auto-save-file-name-transforms `((".*" ,(concat adir "\\1") t))
+        auto-save-list-file-prefix (concat ldir "/saves-")
+        backup-directory-alist `((".*" . ,bdir))))
 
-    ;; edit html tags like sexps
-    tagedit
+(when (member "Inconsolata" (font-family-list))
+  (set-frame-font "Inconsolata 15"))
 
-    ;; git integration
-    magit))
+;; Simplify prompts.
+(fset 'yes-or-no-p 'y-or-n-p)
 
-;; On OS X, an Emacs instance started from the graphical user
-;; interface will have a different environment than a shell in a
-;; terminal window, because OS X does not run a shell during the
-;; login. Obviously this will lead to unexpected results when
-;; calling external utilities like make from Emacs.
-;; This library works around this problem by copying important
-;; environment variables from the user's shell.
-;; https://github.com/purcell/exec-path-from-shell
-(if (eq system-type 'darwin)
-    (add-to-list 'my-packages 'exec-path-from-shell))
+;; Reduce noise.
+(setq confirm-nonexistent-file-or-buffer nil
+      inhibit-splash-screen t
+      inhibit-startup-echo-area-message t
+      inhibit-startup-message t
+      initial-scratch-message nil
+      kill-buffer-query-functions (remq 'process-kill-buffer-query-function kill-buffer-query-functions)
+      ring-bell-function 'ignore)
 
-(dolist (p my-packages)
-  (when (not (package-installed-p p))
-    (package-install p)))
+;; Prevent accidental closure.
+(setq confirm-kill-emacs 'y-or-n-p)
 
+;; Display column number in modeline.
+(setq column-number-mode t)
 
-;; Place downloaded elisp files in ~/.emacs.d/vendor. You'll then be able
-;; to load them.
-;;
-;; For example, if you download yaml-mode.el to ~/.emacs.d/vendor,
-;; then you can add the following code to this file:
-;;
-;; (require 'yaml-mode)
-;; (add-to-list 'auto-mode-alist '("\\.yml$" . yaml-mode))
-;; 
-;; Adding this code will make Emacs enter yaml mode whenever you open
-;; a .yml file
-(add-to-list 'load-path "~/.emacs.d/vendor")
+;; Collect garbage less frequently.
+(setq gc-cons-threshold 104857600)
 
+;; Delete the trailing newline.
+(setq kill-whole-line t)
 
-;;;;
-;; Customization
-;;;;
+;; Adjust indentation and line wrapping.
+(let ((spaces 2)
+      (max-line-length 100))
+  (setq-default fill-column max-line-length
+                indent-tabs-mode nil
+                tab-width spaces
+                tab-stop-list (number-sequence spaces max-line-length spaces)))
 
-;; Add a directory to our load path so that when you `load` things
-;; below, Emacs knows where to look for the corresponding file.
-(add-to-list 'load-path "~/.emacs.d/customizations")
-(add-to-list 'load-path "~/.emacs.d/themes")
+;; Open URLs within Emacs.
+(when (package-installed-p 'eww)
+  (setq browse-url-browser-function 'eww-browse-url))
 
-;; Sets up exec-path-from-shell so that Emacs will use the correct
-;; environment variables
-(load "shell-integration.el")
+(bind-key "C-c C-SPC" #'delete-trailing-whitespace)
+(bind-key "C-x C-b" #'ibuffer)
+(bind-key "C-x C-k" #'init-kill-buffer-current)
+(bind-key "M-/" #'hippie-expand)
+(bind-key "M-o" #'other-window)
 
-;; These customizations make it easier for you to navigate files,
-;; switch buffers, and choose options from the minibuffer.
-(load "navigation.el")
+(global-subword-mode 1)
 
-;; These customizations change the way emacs looks and disable/enable
-;; some user interface elements
-(load "ui.el")
+;;; General Packages
 
-;; These customizations make editing a bit nicer.
-(load "editing.el")
+(use-package company
+  :demand
+  :diminish ""
+  :init
+  (progn
+    (setq company-idle-delay 0.3)
+    (global-company-mode)))
 
-;; Hard-to-categorize customizations
-(load "misc.el")
+(use-package exec-path-from-shell
+  :defer t
+  :if (memq window-system '(mac ns))
+  :init
+  (progn
+    (setq exec-path-from-shell-check-startup-files nil)
+    (exec-path-from-shell-initialize)))
 
-;; For editing lisps
-(load "elisp-editing.el")
+(use-package helm
+  :demand
+  :diminish ""
+  :bind (("C-M-y" . helm-show-kill-ring)
+         ("C-h a" . helm-apropos)
+         ("C-x C-f" . helm-find-files)
+         ("C-x b" . helm-mini)
+         ("M-s o" . helm-occur)
+         ("M-x" . helm-M-x)
+         :map helm-map
+         ([tab] . helm-execute-persistent-action))
+  :init
+  (progn
+    (setq helm-M-x-fuzzy-match t
+          helm-apropos-fuzzy-match t
+          helm-buffers-fuzzy-matching t
+          helm-ff-newfile-prompt-p nil
+          helm-locate-fuzzy-match t
+          helm-recentf-fuzzy-match t)
+    (require 'helm-config)
+    (helm-mode)))
 
-;; Langauage-specific
-(load "setup-clojure.el")
-(load "setup-js.el")
-(custom-set-variables
- ;; custom-set-variables was added by Custom.
- ;; If you edit it by hand, you could mess it up, so be careful.
- ;; Your init file should contain only one such instance.
- ;; If there is more than one, they won't work right.
- '(coffee-tab-width 2)
- '(custom-safe-themes
-   (quote
-    ("e9776d12e4ccb722a2a732c6e80423331bcb93f02e089ba2a4b02e85de1cf00e" "3d5ef3d7ed58c9ad321f05360ad8a6b24585b9c49abcee67bdcbb0fe583a6950" default)))
- '(package-selected-packages
-   (quote
-    (sublime-themes haskell-mode haskell-emacs cider-decompile magit tagedit rainbow-delimiters projectile smex ido-completing-read+ cider clojure-mode-extra-font-locking clojure-mode paredit exec-path-from-shell))))
-(custom-set-faces
- ;; custom-set-faces was added by Custom.
- ;; If you edit it by hand, you could mess it up, so be careful.
- ;; Your init file should contain only one such instance.
- ;; If there is more than one, they won't work right.
- )
+(use-package which-key
+  :demand
+  :pin melpa
+  :init (which-key-mode))
 
-(load-theme 'fogus t)
+(use-package yaml-mode
+  :defer t)
+
+(use-package yasnippet
+  :demand
+  :diminish (yas-minor-mode . "")
+  :init
+  (progn
+    (add-to-list 'hippie-expand-try-functions-list #'yas-hippie-try-expand)
+    (yas-global-mode))
+  :config
+  (progn
+    (defun init-yas-uncapitalize (cap)
+      (concat (downcase (substring cap 0 1))
+              (substring cap 1)))
+
+    (unbind-key "TAB" yas-minor-mode-map)
+    (unbind-key "<tab>" yas-minor-mode-map)))
+
+;;; Demo Packages
+
+(use-package demo-it
+  :defer t)
+
+(use-package expand-region
+  :defer t
+  :bind ("C-=" . er/expand-region))
+
+(use-package fancy-narrow
+  :defer t)
+
+(use-package org
+  :defer t
+  :init
+  (progn
+    (setq org-hide-emphasis-markers t
+          org-log-done 'time
+          org-src-fontify-natively t
+          org-startup-truncated nil))
+  :config
+  (progn
+    (progn
+      (org-babel-do-load-languages
+       'org-babel-load-languages
+       '((emacs-lisp . t)
+         (sh . t))))))
+
+(use-package org-bullets
+  :defer t
+  :init
+  (progn
+    (add-hook 'org-mode-hook #'org-bullets-mode)))
+
+(use-package org-tree-slide
+  :defer t)
+
+(use-package zenburn-theme
+  :demand
+  :init
+  (progn
+    ;; Increase contrast for presentation.
+    (defvar zenburn-override-colors-alist
+      '(("zenburn-bg-1"     . "#101010")
+        ("zenburn-bg-05"    . "#202020")
+        ("zenburn-bg"       . "#2B2B2B")
+        ("zenburn-bg+05"    . "#383838")
+        ("zenburn-bg+1"     . "#3F3F3F")
+        ("zenburn-bg+2"     . "#494949")
+        ("zenburn-bg+3"     . "#4F4F4F")))
+    (load-theme 'zenburn 'no-confirm)))
+
+;;; Development Packages
+
+(use-package compile
+  :defer t
+  :init
+  (progn
+    (setq compilation-scroll-output 'first-error)
+
+    (defun init-compilation-colorize ()
+      "Colorize compilation."
+      (let ((inhibit-read-only t))
+        (goto-char compilation-filter-start)
+        (move-beginning-of-line nil)
+        (ansi-color-apply-on-region (point) (point-max))))
+
+    (add-hook 'compilation-filter-hook #'init-compilation-colorize)))
+
+(use-package etags
+  :bind (("M-." . init-goto-tag))
+  :init
+  (progn
+    (setq tags-revert-without-query t))
+  :config
+  (progn
+    (defun init-goto-tag ()
+      "Jump to the definition."
+      (interactive)
+      (find-tag (find-tag-default)))))
+
+(use-package helm-projectile
+  :demand
+  :init
+  (progn
+    (setq projectile-completion-system 'helm)
+    (helm-projectile-on)))
+
+(use-package flycheck
+  :demand
+  :diminish ""
+  :bind (:map flycheck-mode-map
+              ("M-n" . flycheck-next-error)
+              ("M-p" . flycheck-previous-error))
+  :init
+  (progn
+    (add-hook 'after-init-hook #'global-flycheck-mode))
+  :config
+  (progn
+    (defun init-flycheck-may-enable-mode (f)
+      "Disallow flycheck in special buffers."
+      (interactive)
+      (and (not (string-prefix-p "*" (buffer-name)))
+           (apply (list f))))
+
+    (advice-add 'flycheck-may-enable-mode :around
+                #'init-flycheck-may-enable-mode)))
+
+(use-package magit
+  :defer t
+  :init
+  (progn
+    (setq magit-push-always-verify nil
+          magit-revert-buffers t)
+    (add-hook 'git-commit-mode-hook #'flyspell-mode)))
+
+(use-package paren
+  :defer t
+  :init
+  (show-paren-mode))
+
+(use-package projectile
+  :demand
+  :diminish ""
+  :init
+  (progn
+    (setq projectile-create-missing-test-files t
+          projectile-mode-line nil
+          projectile-use-git-grep t)
+    (projectile-mode)))
+
+;;; Haskell Packages
+
+(use-package haskell-mode
+  :defer t
+  :bind (:map haskell-mode-map
+              ("M-g i" . haskell-navigate-imports)
+              ("M-g M-i" . haskell-navigate-imports))
+  :init
+  (progn
+    (setq haskell-compile-cabal-build-alt-command
+          "cd %s && stack clean && stack build --ghc-options -ferror-spans"
+          haskell-compile-cabal-build-command
+          "cd %s && stack build --ghc-options -ferror-spans"
+          haskell-compile-command
+          "stack ghc -- -Wall -ferror-spans -fforce-recomp -c %s")))
+
+(use-package haskell-snippets
+  :defer t)
+
+(use-package hlint-refactor
+  :defer t
+  :diminish ""
+  :init (add-hook 'haskell-mode-hook #'hlint-refactor-mode))
+
+(use-package intero
+  :defer t
+  :diminish " λ"
+  :bind (:map intero-mode-map
+              ("M-." . init-intero-goto-definition))
+  :init
+  (progn
+    (defun init-intero ()
+      "Enable Intero unless visiting a cached dependency."
+      (if (and buffer-file-name
+               (string-match ".+/\\.\\(stack\\|stack-work\\)/.+" buffer-file-name))
+          (progn
+            (eldoc-mode -1)
+            (flycheck-mode -1))
+        (intero-mode)
+        (set (make-local-variable 'projectile-tags-command) "codex update")))
+
+    (add-hook 'haskell-mode-hook #'init-intero))
+  :config
+  (progn
+    (defun init-intero-goto-definition ()
+      "Jump to the definition of the thing at point using Intero or etags."
+      (interactive)
+      (or (intero-goto-definition)
+          (find-tag (find-tag-default))))
+
+    (flycheck-add-next-checker 'intero '(warning . haskell-hlint))))
+
+;;; Enable Disabled Features
+
+(put 'dired-find-alternate-file 'disabled nil)
+(put 'downcase-region 'disabled nil)
+(put 'narrow-to-region 'disabled nil)
+(put 'upcase-region 'disabled nil)
